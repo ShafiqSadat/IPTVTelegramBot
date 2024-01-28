@@ -44,6 +44,9 @@ public class IPTVBot extends TelegramLongPollingBot {
             var messageID = update.getMessage().getMessageId();
             var from = update.getMessage().getFrom();
             if (messageText.equals("/start")) {
+                if(!redis.sismember("IPTVBOT_USERS", from.getId().toString())){
+                    redis.sadd("IPTVBOT_USERS", from.getId().toString());
+                }
                 InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
                 List<List<InlineKeyboardButton>> rows = new ArrayList<>();
                 List<InlineKeyboardButton> row1 = new ArrayList<>();
