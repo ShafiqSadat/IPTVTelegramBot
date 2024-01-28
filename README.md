@@ -1,6 +1,6 @@
 # IPTV Telegram Bot
 
-IPTV Telegram Bot is a bot that lets you watch IPTV streams right in Telegram App. IPTV stands for Internet Protocol Television, which is a way of delivering live TV channels over the internet. With this bot, you can send the name of the channel you want to watch, and the bot will respond with available streams to watch. There are over 6000+ online streams from all over the world, covering various genres and languages.
+IPTV Telegram Bot is a bot that lets you watch IPTV streams right in Telegram App. IPTV stands for Internet Protocol Television, which is a way of delivering live TV channels over the internet. With this bot, you can send the name of the channel you want to watch, and the bot will respond with available streams to watch. There are over 60000+ online streams from all over the world, covering various genres and languages.
 
 ![Screenshot of IPTV Telegram Bot](https://i.imgur.com/XVsp1Nd.png)
 
