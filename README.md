@@ -4,7 +4,7 @@ IPTV Telegram Bot is a bot that lets you watch IPTV streams right in Telegram Ap
 
 ![Screenshot of IPTV Telegram Bot](https://i.imgur.com/XVsp1Nd.png)
 
-![Screenshot of IPTV Telegram Bot](https://im3.ezgif.com/tmp/ezgif-3-591b05e402.gif)
+![Screenshot of IPTV Telegram Bot](https://raw.githubusercontent.com/ShafiqSadat/IPTVTelegramBot/master/screenshots/1.gif)
 ## How to use
 
 - Clone this repository or download the zip file.
