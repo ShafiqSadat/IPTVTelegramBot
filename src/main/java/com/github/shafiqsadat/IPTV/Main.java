@@ -1,32 +1,43 @@
 package com.github.shafiqsadat.IPTV;
 
-import com.github.shafiqsadat.IPTV.utils.IPTVModel;
-import com.github.shafiqsadat.IPTV.utils.IPTVParser;
-import com.github.shafiqsadat.IPTV.utils.PropertiesReader;
+import com.github.shafiqsadat.IPTV.utils.*;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.util.List;
-import java.util.Properties;
 
 
 public class Main {
+    private static final Logger logger = LoggerFactory.getLogger(Main.class);
+    
     public static void main(String[] args) throws IOException {
-//        List<IPTVModel> iptvModelList = IPTVParser.getIPTVListByRegion();
-//        for (IPTVModel iptvModel : iptvModelList) {
-//            System.out.println(iptvModel.getName() + " " + iptvModel.getCount() + " " + iptvModel.getStreamLink());
-//        }
-//        System.out.println(PropertiesReader.getInstance().getBotToken());
-
+        // Add shutdown hook for graceful shutdown
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            logger.info("Shutting down IPTV Bot...");
+            RedisManager.close();
+            logger.info("IPTV Bot shut down successfully");
+        }));
+        
         try {
             TelegramBotsApi telegramBotsApi = new TelegramBotsApi(DefaultBotSession.class);
+            
+            // Register the bot
             telegramBotsApi.registerBot(new IPTVBot(PropertiesReader.getInstance().getBotToken()));
-            System.out.println("Bot is running...");
+            
+            logger.info("✅ IPTV Bot is now running and ready to serve users!");
+            logger.info("Press Ctrl+C to stop the bot");
+            
+            // Keep the application running
+            Thread.currentThread().join();
         } catch (TelegramApiException e) {
-            e.printStackTrace();
+            logger.error("❌ Failed to start IPTV Bot", e);
+            System.exit(1);
+        } catch (InterruptedException e) {
+            logger.info("Bot interrupted, shutting down...");
+            Thread.currentThread().interrupt();
         }
     }
 }
