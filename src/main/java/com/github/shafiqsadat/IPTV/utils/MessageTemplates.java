@@ -103,20 +103,21 @@ public class MessageTemplates {
     }
     
     public static String getChannelInfoCaption(String type, String name, String count, String streamLink) {
+        String channels = count.isBlank() ? "" : "\n📊 Channels: " + escapeMarkdownV2(count);
         return String.format("""
-                ✅ %s: %s
-                📊 Channels: %s
+                ✅ %s: %s%s
                 🔗 Stream Link: `%s`
-                
+
                 💡 Download the file or copy the link to use in your IPTV player\\!""",
-                type, escapeMarkdownV2(name.replaceAll("-", " ")), count, streamLink.replaceAll("-", "\\-"));
+                escapeMarkdownV2(type), escapeMarkdownV2(name), channels, escapeMarkdownV2Code(streamLink));
     }
-    
-    /**
-     * Escapes special characters for MarkdownV2 format
-     */
+
     private static String escapeMarkdownV2(String text) {
-        // Characters that need to be escaped in MarkdownV2: _*[]()~`>#+-=|{}.!
-        return text.replaceAll("([_*\\[\\]()~`>#+=|{}.!-])", "\\\\$1");
+        return text.replaceAll("([_*\\[\\]()~`>#+=|{}.!\\-\\\\])", "\\\\$1");
+    }
+
+    // Inside a code span only backslash and backtick are special
+    private static String escapeMarkdownV2Code(String text) {
+        return text.replaceAll("([`\\\\])", "\\\\$1");
     }
 }

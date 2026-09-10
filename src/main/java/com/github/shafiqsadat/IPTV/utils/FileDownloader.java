@@ -1,32 +1,32 @@
 package com.github.shafiqsadat.IPTV.utils;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.net.URLConnection;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 
-public class FileDownloader {
+public final class FileDownloader {
+    private static final int TIMEOUT_MS = 30_000;
 
-    public static File downloadFile(String fileUrl, String savePath) throws IOException {
-        // Create a URI object and convert to URL (non-deprecated approach)
-        URI uri = URI.create(fileUrl);
-        
-        // Open a connection to the URL
-        try (InputStream inputStream = uri.toURL().openStream()) {
-            // Save the file to a temporary location
-            Path tempFilePath = Files.createTempFile("iptv_temp", ".m3u");
-            Files.copy(inputStream, tempFilePath, StandardCopyOption.REPLACE_EXISTING);
-            
-            // Create a File object from the temporary file path
-            File file = new File(savePath);
-            
-            // Move the temporary file to the desired save location
-            Files.move(tempFilePath, file.toPath(), StandardCopyOption.REPLACE_EXISTING);
-            
-            return file;
+    private FileDownloader() {
+    }
+
+    /** Downloads to a unique temp file; the caller is responsible for deleting it. */
+    public static Path downloadToTempFile(String fileUrl) throws IOException {
+        URLConnection connection = URI.create(fileUrl).toURL().openConnection();
+        connection.setConnectTimeout(TIMEOUT_MS);
+        connection.setReadTimeout(TIMEOUT_MS);
+
+        Path tempFile = Files.createTempFile("iptv-", ".m3u");
+        try (InputStream inputStream = connection.getInputStream()) {
+            Files.copy(inputStream, tempFile, StandardCopyOption.REPLACE_EXISTING);
+            return tempFile;
+        } catch (IOException e) {
+            Files.deleteIfExists(tempFile);
+            throw e;
         }
     }
 }

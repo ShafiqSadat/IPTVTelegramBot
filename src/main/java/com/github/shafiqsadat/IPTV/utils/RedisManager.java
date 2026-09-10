@@ -1,60 +1,56 @@
 package com.github.shafiqsadat.IPTV.utils;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-public class RedisManager {
+public final class RedisManager {
     private static final Logger logger = LoggerFactory.getLogger(RedisManager.class);
-    private static JedisPool jedisPool;
+    private static final int CONNECTION_TIMEOUT_MS = 2000;
 
-    static {
-        try {
-            JedisPoolConfig poolConfig = new JedisPoolConfig();
-            poolConfig.setMaxTotal(10);
-            poolConfig.setMaxIdle(5);
-            poolConfig.setMinIdle(1);
-            poolConfig.setTestOnBorrow(true);
-            poolConfig.setTestOnReturn(true);
-            poolConfig.setTestWhileIdle(true);
-            
-            // Create JedisPool with hostname and port explicitly
-            jedisPool = new JedisPool(poolConfig, "localhost", 6379);
-            
-            // Test the connection
-            try (Jedis testJedis = jedisPool.getResource()) {
-                testJedis.ping();
-            }
-            
-            logger.info("Redis connection pool initialized successfully");
-            System.out.println("✅ Redis connection pool initialized successfully");
-        } catch (Exception e) {
-            logger.error("Failed to initialize Redis connection pool", e);
-            System.err.println("❌ Failed to initialize Redis connection pool: " + e.getMessage());
-            System.err.println("💡 Make sure Redis is running: brew services start redis");
-            e.printStackTrace();
+    private static volatile JedisPool jedisPool;
+
+    private RedisManager() {
+    }
+
+    public static synchronized void init() {
+        if (jedisPool != null) {
+            return;
         }
+        PropertiesReader config = PropertiesReader.getInstance();
+        String host = config.getRedisHost();
+        int port = config.getRedisPort();
+
+        JedisPoolConfig poolConfig = new JedisPoolConfig();
+        poolConfig.setMaxTotal(10);
+        poolConfig.setMaxIdle(5);
+        poolConfig.setMinIdle(1);
+        poolConfig.setTestOnBorrow(true);
+        poolConfig.setTestOnReturn(true);
+        poolConfig.setTestWhileIdle(true);
+
+        JedisPool pool = new JedisPool(poolConfig, host, port, CONNECTION_TIMEOUT_MS, config.getRedisPassword());
+        try (Jedis jedis = pool.getResource()) {
+            jedis.ping();
+        } catch (RuntimeException e) {
+            pool.close();
+            throw e;
+        }
+        jedisPool = pool;
+        logger.info("Connected to Redis at {}:{}", host, port);
     }
 
     public static Jedis getJedis() {
-        if (jedisPool == null) {
-            System.err.println("❌ Redis pool is not initialized!");
-            throw new RuntimeException("Redis pool is not initialized. Make sure Redis is running on localhost:6379");
+        JedisPool pool = jedisPool;
+        if (pool == null) {
+            throw new IllegalStateException("RedisManager.init() must be called before use");
         }
-        try {
-            Jedis jedis = jedisPool.getResource();
-            // Test connection
-            jedis.ping();
-            return jedis;
-        } catch (Exception e) {
-            System.err.println("❌ Failed to get Redis connection: " + e.getMessage());
-            throw new RuntimeException("Failed to connect to Redis. Make sure Redis is running on localhost:6379", e);
-        }
+        return pool.getResource();
     }
 
-    public static void close() {
+    public static synchronized void close() {
         if (jedisPool != null && !jedisPool.isClosed()) {
             jedisPool.close();
             logger.info("Redis connection pool closed");

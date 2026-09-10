@@ -9,11 +9,12 @@ IPTV Telegram Bot is a bot that lets you watch IPTV streams right in Telegram Ap
 
 - Clone this repository or download the zip file.
 - Install the requirements using `mvn install`.
+- Install and start [Redis](https://redis.io/) - the bot uses it to remember users and pending country searches. It connects to `localhost:6379` with no password by default.
 - Create a bot using [@BotFather](https://t.me/BotFather) and get the bot token.
 - In BotFather, send the "/setmenubutton" command, select your bot, and send the following link: ```https://iptvnator.vercel.app/```. Then, provide a name for the button, such as "Open Player."
-- Rename example_local.properties into local.properties under /src/main/resources/example_local.properties
-- Edit the local.properties file and enter your bot token and username.
-- Run the Main.java file using `java Main`.
+- Copy `src/main/resources/example_local.properties` to `src/main/resources/local.properties` (this file is git-ignored - never commit it).
+- Edit `local.properties` and enter your bot token and username. Set `redisHost`, `redisPort` and `redisPassword` there if your Redis isn't on localhost.
+- Run `com.github.shafiqsadat.IPTV.Main` from your IDE (the bot needs its Maven dependencies on the classpath, so a bare `java Main` won't work).
 - Start your bot and enjoy watching IPTV streams.
 
 ## Credits

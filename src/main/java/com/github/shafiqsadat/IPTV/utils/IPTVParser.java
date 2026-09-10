@@ -4,204 +4,132 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-public class IPTVParser {
+public final class IPTVParser {
+    private static final Logger logger = LoggerFactory.getLogger(IPTVParser.class);
+    private static final Duration CACHE_TTL = Duration.ofHours(1);
+    private static final int FETCH_TIMEOUT_MS = 30_000;
+    private static final Pattern LIST_ITEM = Pattern.compile("^- (.+?)\\s*<code>(.+?)</code>");
+
+    private record Playlists(List<IPTVModel> categories, List<IPTVModel> languages,
+                             List<IPTVModel> countries, List<IPTVModel> regions) {
+    }
+
+    private static Playlists cached;
+    private static Instant cachedAt = Instant.MIN;
+
+    private IPTVParser() {
+    }
 
     public static List<IPTVModel> getIPTVListByCategories() throws IOException {
-        return getIPTVList(0);
+        return playlists().categories();
     }
 
     public static List<IPTVModel> getIPTVListByLanguages() throws IOException {
-        return getIPTVList(1);
+        return playlists().languages();
     }
 
     public static List<IPTVModel> getIPTVListByCountries() throws IOException {
-        // Countries are now in a list format, not a table
-        try {
-            System.out.println("🔍 Fetching country data...");
-            
-            // Fetch the raw markdown content
-            String content = Jsoup.connect(Constants.IPTV_GITHUB_RAW_LINK)
-                    .ignoreContentType(true)
-                    .execute()
-                    .body();
-            
-            List<IPTVModel> iptvModelList = new ArrayList<>();
-            
-            // Find the Countries section
-            int countriesIndex = content.indexOf("#### Countries");
-            if (countriesIndex == -1) {
-                throw new IOException("Countries section not found");
-            }
-            
-            // Find the end of the Countries section (next #### or ###)
-            int endIndex = content.indexOf("####", countriesIndex + 14);
-            if (endIndex == -1) {
-                endIndex = content.indexOf("###", countriesIndex + 14);
-            }
-            if (endIndex == -1) {
-                endIndex = content.length();
-            }
-            
-            String countriesSection = content.substring(countriesIndex, endIndex);
-            
-            // Parse each country line (format: - 🇦🇫 Afghanistan <code>https://...</code>)
-            String[] lines = countriesSection.split("\n");
-            for (String line : lines) {
-                line = line.trim();
-                
-                // Skip lines without country data or with subdivisions/cities
-                if (!line.startsWith("-") || !line.contains("<code>") || 
-                    line.contains("subdivisions") || line.contains("cities")) {
-                    continue;
-                }
-                
-                // Extract country name (between emoji and <code>)
-                int emojiEnd = 2; // Most emojis are 2 chars
-                int codeStart = line.indexOf("<code>");
-                
-                if (codeStart == -1) continue;
-                
-                String name = line.substring(emojiEnd, codeStart).trim();
-                
-                // Extract URL from <code>...</code>
-                int urlStart = line.indexOf("<code>") + 6;
-                int urlEnd = line.indexOf("</code>");
-                
-                if (urlStart == -1 || urlEnd == -1) continue;
-                
-                String streamLink = line.substring(urlStart, urlEnd);
-                
-                if (!name.isEmpty() && !streamLink.isEmpty()) {
-                    IPTVModel iptvModel = new IPTVModel(name, "N/A", streamLink);
-                    iptvModelList.add(iptvModel);
-                }
-            }
-            
-            System.out.println("✅ Parsed " + iptvModelList.size() + " countries");
-            return iptvModelList;
-            
-        } catch (Exception e) {
-            System.err.println("❌ Error parsing countries: " + e.getMessage());
-            e.printStackTrace();
-            throw new IOException("Failed to parse countries", e);
-        }
+        return playlists().countries();
     }
 
     public static List<IPTVModel> getIPTVListByRegion() throws IOException {
-        try {
-            System.out.println("🔍 Fetching regions data from GitHub...");
-            
-            // Fetch the raw markdown content
-            String content = Jsoup.connect(Constants.IPTV_GITHUB_RAW_LINK)
-                    .ignoreContentType(true)
-                    .execute()
-                    .body();
-            
-            List<IPTVModel> iptvModelList = new ArrayList<>();
-            
-            // Find the "#### Regions" section
-            String[] lines = content.split("\n");
-            boolean inRegionsSection = false;
-            
-            for (String line : lines) {
-                // Start parsing when we find "#### Regions"
-                if (line.trim().equals("#### Regions")) {
-                    inRegionsSection = true;
-                    continue;
-                }
-                
-                // Stop when we reach the next section (#### Countries)
-                if (inRegionsSection && line.trim().startsWith("####")) {
+        return playlists().regions();
+    }
+
+    private static synchronized Playlists playlists() throws IOException {
+        if (cached != null && Instant.now().isBefore(cachedAt.plus(CACHE_TTL))) {
+            return cached;
+        }
+
+        logger.info("Fetching playlist index from {}", Constants.IPTV_GITHUB_RAW_LINK);
+        String content = Jsoup.connect(Constants.IPTV_GITHUB_RAW_LINK)
+                .ignoreContentType(true)
+                .timeout(FETCH_TIMEOUT_MS)
+                .maxBodySize(0)
+                .execute()
+                .body();
+
+        Document doc = Jsoup.parse(content);
+        Playlists playlists = new Playlists(
+                parseTableSection(doc, 0),
+                parseTableSection(doc, 1),
+                parseListSection(content, "#### Countries"),
+                parseListSection(content, "#### Regions"));
+        logger.info("Parsed {} categories, {} languages, {} countries, {} regions",
+                playlists.categories().size(), playlists.languages().size(),
+                playlists.countries().size(), playlists.regions().size());
+
+        cached = playlists;
+        cachedAt = Instant.now();
+        return playlists;
+    }
+
+    private static List<IPTVModel> parseTableSection(Document doc, int index) throws IOException {
+        Elements detailsSections = doc.select("details");
+        if (detailsSections.size() <= index) {
+            throw new IOException("Playlist index has only " + detailsSections.size()
+                    + " sections, expected at least " + (index + 1));
+        }
+        Element table = detailsSections.get(index).selectFirst("table");
+        if (table == null) {
+            throw new IOException("No table found in playlist index section " + index);
+        }
+
+        List<IPTVModel> items = new ArrayList<>();
+        for (Element row : table.select("tr")) {
+            Elements cells = row.select("td");
+            if (cells.size() < 3) {
+                continue;
+            }
+            String name = cells.get(0).text();
+            if (name.isEmpty() || name.equals("XXX")) {
+                continue;
+            }
+            items.add(new IPTVModel(name, cells.get(1).text(), cells.get(2).text()));
+        }
+        if (items.isEmpty()) {
+            throw new IOException("No playlists found in playlist index section " + index);
+        }
+        return List.copyOf(items);
+    }
+
+    private static List<IPTVModel> parseListSection(String content, String heading) throws IOException {
+        List<IPTVModel> items = new ArrayList<>();
+        boolean inSection = false;
+        for (String line : content.split("\n")) {
+            if (line.startsWith("#")) {
+                if (inSection) {
                     break;
                 }
-                
-                // Parse region lines like: - Africa <code>https://iptv-org.github.io/iptv/regions/afr.m3u</code>
-                if (inRegionsSection && line.trim().startsWith("- ")) {
-                    try {
-                        // Extract region name and URL
-                        String lineContent = line.substring(line.indexOf("- ") + 2).trim();
-                        
-                        // Split by <code> tag
-                        if (lineContent.contains("<code>") && lineContent.contains("</code>")) {
-                            int codeStart = lineContent.indexOf("<code>") + 6;
-                            int codeEnd = lineContent.indexOf("</code>");
-                            
-                            String url = lineContent.substring(codeStart, codeEnd).trim();
-                            String name = lineContent.substring(0, lineContent.indexOf("<code>")).trim();
-                            
-                            // Create IPTVModel with all required parameters
-                            IPTVModel model = new IPTVModel(name, "Unknown", url);
-                            
-                            iptvModelList.add(model);
-                        }
-                    } catch (Exception e) {
-                        System.err.println("❌ Error parsing region line: " + line);
-                        e.printStackTrace();
-                    }
-                }
+                inSection = line.trim().equals(heading);
+                continue;
             }
-            
-            System.out.println("✅ Parsed " + iptvModelList.size() + " regions");
-            return iptvModelList;
-            
-        } catch (Exception e) {
-            System.err.println("❌ Error parsing regions: " + e.getMessage());
-            e.printStackTrace();
-            throw new IOException("Failed to parse regions", e);
+            if (!inSection) {
+                continue;
+            }
+            if (line.startsWith("</details>")) {
+                break;
+            }
+            // Sub-items (subdivisions, cities) are indented, so anchoring at column 0 skips them
+            Matcher matcher = LIST_ITEM.matcher(line);
+            if (matcher.find()) {
+                items.add(new IPTVModel(matcher.group(1).trim(), "", matcher.group(2).trim()));
+            }
         }
-    }
-
-    public static List<IPTVModel> getIPTVList(int index) throws IOException {
-        try {
-            System.out.println("🔍 Fetching IPTV data from: " + Constants.IPTV_GITHUB_RAW_LINK);
-            Document doc = Jsoup.connect(Constants.IPTV_GITHUB_RAW_LINK).get();
-            
-            // Select all tables within details sections
-            Elements detailsSections = doc.select("details");
-            System.out.println("📊 Found " + detailsSections.size() + " details sections");
-            
-            if (detailsSections.size() <= index) {
-                System.err.println("❌ Not enough details sections. Expected at least " + (index + 1) + " but found " + detailsSections.size());
-                throw new IOException("Invalid section index: " + index + ". Only " + detailsSections.size() + " sections found.");
-            }
-            
-            Element detailsSection = detailsSections.get(index);
-            Element tableElement = detailsSection.select("table").first();
-            
-            if (tableElement == null) {
-                System.err.println("❌ No table found in details section " + index);
-                throw new IOException("No table found in section " + index);
-            }
-            
-            Elements tableRows = tableElement.select("tr");
-            List<IPTVModel> iptvModelList = new ArrayList<>();
-            
-            for (Element row : tableRows) {
-                Elements cells = row.select("td");
-                if (cells.size() >= 3) {
-                    String name = cells.get(0).text();
-                    if(name.equals("XXX") || name.isEmpty()){
-                        continue;
-                    }
-                    String count = cells.get(1).text();
-                    String streamLink = cells.get(2).text();
-                    IPTVModel iptvModel = new IPTVModel(name, count, streamLink);
-                    iptvModelList.add(iptvModel);
-                }
-            }
-            
-            System.out.println("✅ Parsed " + iptvModelList.size() + " items from section " + index);
-            return iptvModelList;
-        } catch (Exception e) {
-            System.err.println("❌ Error parsing IPTV list for index " + index + ": " + e.getMessage());
-            e.printStackTrace();
-            throw e;
+        if (items.isEmpty()) {
+            throw new IOException("Section '" + heading + "' not found in playlist index");
         }
+        return List.copyOf(items);
     }
-
 }
